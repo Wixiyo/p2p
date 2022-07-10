@@ -368,7 +368,7 @@ var SLMSceneBuilder = function(sceneMgr)
 		console.log("分支数目为：",branching)
 		function loading(meshIndex,linkNext,high_quality) {//普通加载
 			if(window.param.onlyP2P){
-				window.p2p.needPack.put(meshIndex)
+				window.p2p.needPack.enQueue(meshIndex)
 				return
 			}
 			if(window.loaded[meshIndex])return;

@@ -28,6 +28,35 @@ class RequestSet{
     }    
   }
 
+// 队列
+class Queue{
+    constructor(){
+        // 队列
+        this.queue = []
+    }
+
+    // 入队
+    enQueue = (data) => {
+      if(data == null) return
+      this.queue.push(data)
+    }
+    // 出队
+    deQueue = () => {
+      if(this.queue.length === 0) return 
+      const data = this.queue.shift()
+      return data
+    }
+    size = () => {
+        return this.queue.length
+    }
+    // 获取列表
+    getQueue = () => {
+      // 返回一个克隆的数组，避免外界直接操作
+      return Array.from(this.queue)
+    }
+  }
+  
+  
 export {P2P}
 import {Peer} from "./Peer.js";
 //经过测试：
@@ -39,7 +68,7 @@ class P2P{
         console.log('执行了P2P的代码',this.useP2P)
         if(!this.useP2P)return
         this.warehouse= {}//已有的数据
-        this.needPack=new RequestSet()//需要的数据包编号，这个存储结构使用集合
+        this.needPack=new Queue()//需要的数据包编号，这个存储结构使用集合
         this.handedQuest = false
         this.bestPeer = {
             id:0,
@@ -54,19 +83,33 @@ class P2P{
         this.myPeer.receive=this.receive0
         this.accept=null
         this.data_buffer = {}
+        //用于统计包传输时间和丢包率
+        this.sended = 0
+        this.received = 0
+        this.start = 0
+        this.end = 0
+        this.reqInterval = 1
+        this.sendTable = {}
         if(window.param.onlyP2P){
-            this.detect()
+            this.active()
         }
     }
-    detect(){
+    active(){
         var work = setInterval(()=>{
             console.log('检测中')
-            this.updatePeer()
-            if(this.bestPeer.id!=0&&this.needPack.size>0){
-                this.request()
-                clearInterval(work)
+            for(var i in this.myPeer.peers){
+                if(this.myPeer.peers[i].readyState==='open'){
+                    if(this.needPack.size()>0){
+                        let id = this.needPack.deQueue()
+                        if(!window.loaded[id]){
+                            this.needPack.enQueue(id)
+                            this.request(id,i)
+                        }
+                    }
+                }
             }
-        },10)
+            
+        },this.reqInterval)
     }
     test(){
         var scope=this
@@ -96,23 +139,21 @@ class P2P{
         }
     }
 
-    request(){
-        if(!this.useP2P)return
-        if(window.loaded[idData]) return//如果该数据包已经被加载
-        if(this.needPack.size>0){
-            var idData = this.needPack.forward()
-            // console.log(idData)
-            this.send({
-                type:"request",
-                idData:idData
-            },this.bestPeer.id)
+    request(idData,target){
+        // console.log(idData)
+        this.send({
+            type:"request",
+            idData:idData
+        },target)
+        if(idData!=null){
+            this.sended++
         }
-        }
+    }
         
 
     store(idData,array){//存储数据
-        this.request()
-        this.needPack.poll(idData)
+        // this.request()
+        // this.needPack.poll(idData)
         if(!this.useP2P)return
         if(array){
             this.warehouse[idData]=array
@@ -161,6 +202,9 @@ class P2P{
                 case 'request':
                     scope.onRequestMessage(pack,sourceId)
                     break
+                case 'end':
+                    scope.onEndMessage(pack,sourceId)
+                    break
                 case 'test':
                     console.log(pack.test)
                     break
@@ -208,7 +252,7 @@ class P2P{
         }
     }
     onRequestMessage = function(pack,sourceId){
-        if(this.warehouse[pack.idData]){
+        if(this.warehouse[pack.idData]&&(this.sendTable[sourceId] != true || this.sendTable[sourceId][pack.idData] != true)){
             var model_data = this.warehouse[pack.idData]//进行大包的切分
             var part_size = 5400
             if(model_data.length>part_size){
@@ -232,6 +276,27 @@ class P2P{
                 array:this.warehouse[pack.idData]
                 },sourceId)
             }
+            //加入已发送表
+            if(this.sendTable[sourceId]==null){
+                this.sendTable[sourceId] = {}
+            }
+            this.sendTable[sourceId][pack.idData] = true
+        }
+    }
+
+    onEndMessage(pack,sourceId){
+        console.log('onEndMessage')
+        if(pack.from==='request'){
+            this.send({
+                type:"end",
+                from:'answer'
+                },sourceId)
+        }
+        else if(pack.from==='answer'){
+            this.end = performance.now()
+            this.received = Object.keys(this.warehouse).length
+            console.log('请求了',this.sended,'个包','共收到',this.received,'个包')
+            console.log('cost',this.end-this.start,'ms')
         }
     }
 }
